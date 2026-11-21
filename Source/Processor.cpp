@@ -389,7 +389,7 @@ void DrumProcessor::setGrid(const gh::Grid& next, bool startPlayback)
     {
         std::lock_guard<std::mutex> lock(mutex);
         grid = next; view.gridSource = true; request.pattern = true;
-        request.loop = {}; request.loopUrl = {};
+        request.loop = juce::File{}; request.loopUrl = juce::URL{};
         request.revision = ++patternRevision; view.patternLoading = true;
         if (startPlayback) startPreviewWhenReady = true;
     }

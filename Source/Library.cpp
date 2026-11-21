@@ -25,7 +25,7 @@ float number(const juce::var& object, const char* name, float fallback, float lo
 }
 juce::Result Sample::load(const juce::File& source)
 {
-    frames = 0; channels = 0; rate = 0; file = {};
+    frames = 0; channels = 0; rate = 0; file = juce::File{};
     pcm.clear(); pcm.shrink_to_fit();
 
     int bits = 0, format = 0, frameBytes = 0;
