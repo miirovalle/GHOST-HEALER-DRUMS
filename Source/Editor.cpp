@@ -596,7 +596,7 @@ DrumEditor::DrumEditor(DrumProcessor& p, MidiDragLauncher launcher)
         knob(sliders[i]); body.addAndMakeVisible(sliders[i]); body.addAndMakeVisible(labels[i]);
         labels[i].setText(std::array<const char*, 7>{"Tune (st)", "Pan", "Level (dB)", "Velocity > pitch (st)", "Low cut (Hz)", "High cut (Hz)", "Compressor"}[i], juce::dontSendNotification);
         sliders[i].setName(labels[i].getText());
-        labels[i].setText(std::array<const char*, 7>{"Tune", "Pan", "Level (dB)", "Velocity\n> pitch", "", "", "Comp"}[i], juce::dontSendNotification);
+        labels[i].setText(std::array<const char*, 7>{"Tune", "Pan", "Level (dB)", "Velocity > pitch", "", "", "Comp"}[i], juce::dontSendNotification);
         labels[i].setJustificationType(juce::Justification::centred);
         labels[i].setFont(juce::Font(juce::FontOptions(16.0f)));
         labels[i].setColour(juce::Label::textColourId, gold);
@@ -623,7 +623,7 @@ DrumEditor::DrumEditor(DrumProcessor& p, MidiDragLauncher launcher)
         body.addAndMakeVisible(globalSliders[i]); body.addAndMakeVisible(globalLabels[i]);
         globalLabels[i].setText(std::array<const char*, 3>{"Master (dB)", "Master saturation", "Tempo (host overrides)"}[i], juce::dontSendNotification);
         globalSliders[i].setName(globalLabels[i].getText());
-        globalLabels[i].setText(std::array<const char*, 3>{"Master (dB)", "Master\nsaturation", "Tempo"}[i], juce::dontSendNotification);
+        globalLabels[i].setText(std::array<const char*, 3>{"Master (dB)", "Master saturation", "Tempo"}[i], juce::dontSendNotification);
         globalLabels[i].setJustificationType(juce::Justification::centred);
         globalLabels[i].setFont(juce::Font(juce::FontOptions(i == 2 ? 20.0f : 16.0f)));
         globalLabels[i].setColour(juce::Label::textColourId, gold);
@@ -862,8 +862,8 @@ void DrumEditor::resized()
         const int count = std::min(controls, 7 - (i / controls) * controls);
         const int offset = (controlArea - (count * controlWidth + (count - 1) * gap)) / 2;
         const int x = 8 + offset + (i % controls) * (controlWidth + gap), top = y + (i / controls) * tileHeight;
-        knobs[static_cast<size_t>(i)]->setBounds(x, top + 42, controlWidth, 148);
-        captions[static_cast<size_t>(i)]->setBounds(x, top + 2, controlWidth, 40);
+        knobs[static_cast<size_t>(i)]->setBounds(x, top + 2, controlWidth, 148);
+        captions[static_cast<size_t>(i)]->setBounds(x, top + 150, controlWidth, 34);
     }
     if (wide)
     {
