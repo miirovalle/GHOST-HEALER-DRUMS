@@ -1,0 +1,5 @@
+build*/
+dist/
+Payload/
+*.user
+.DS_Store

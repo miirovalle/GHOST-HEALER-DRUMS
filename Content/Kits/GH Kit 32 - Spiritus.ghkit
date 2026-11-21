@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "name": "GH Kit 32 - Spiritus",
+  "pads": [
+    {
+      "sample": "../Samples/727e032215c60292f5085bac1685ac6cff8103e029be333d7ee894c798a7a649.wav"
+    },
+    {
+      "sample": "../Samples/8f2b6172f322ba61d08b021d9880643672797b3f89f56898c2b2153a5bea4227.wav"
+    },
+    {
+      "sample": "../Samples/860e0a64da9c2b1a4bcf0c8c986bf9cbc1b63ac6d14615ccec7ab355eaf4a335.wav"
+    },
+    {
+      "sample": "../Samples/e796cbe64406aa340aed835ded911e744ff743c916295b1940c8f1e25f47fb59.wav"
+    },
+    {
+      "sample": "../Samples/86bd23b8f9743aa3154ce8e64a4cbc41f0afeb5eaa28636cf486d6b9c97efc7f.wav"
+    },
+    {
+      "sample": "../Samples/39a405e5c2306a0eff1885cb60b4a5bedf83e018221486604c1d03ebb4de25a6.wav"
+    },
+    {
+      "sample": "../Samples/5ec082a73fa934207692b0282d44196b8ede65b59f268f9fdb16c65fdf7b9c4d.wav"
+    },
+    {
+      "sample": "../Samples/578794aa66e31c50c9f5fb956b3fc39c294d917bb6d48f0bef50b686dafb0a05.wav"
+    },
+    {
+      "sample": "../Samples/b619b4c9b338ae2b0a8d7dc426ec9a0fa68f0abe3022a9ff4a34c15b6e19c748.wav"
+    },
+    {
+      "sample": "../Samples/1cb6ff576588f1e8ce7b27a43a6f1719a5f61d07cfc07f37aa79315e9502c652.wav"
+    },
+    {
+      "sample": "../Samples/1540d1604b492cfe14e82ee58a9e3cf8d40d84d6f321313ca64c19bdb564fde5.wav"
+    },
+    {
+      "sample": "../Samples/8b31a54c4a39c55c739aeea8a1eb79801e4c0029a3c4e3679d2fcce057c6ccb6.wav"
+    },
+    {
+      "sample": "../Samples/12c793064c8a7ab5bdda148c526a342fcdae18cb0e67cccd7e96c4290a8a7d06.wav"
+    },
+    {
+      "sample": "../Samples/0609c8af752bd2d5115978cf6749d1c5e0e707533f3e8295f92ebe7389e293b6.wav"
+    },
+    {
+      "sample": "../Samples/d5c0a7ce9d42659fd3a8b63671c484294ef23cdadf20a6d0af84f59d0bee5cb9.wav"
+    },
+    {
+      "sample": "../Samples/fbbb83209490d9816e73bbfe54cc620d7c493bcf05e5325e298e05893614899f.wav"
+    },
+    {
+      "sample": "../Samples/9e8f954d9a6d724bbbab4353604d36de1a7ac1311869ee49cfbe3862a269ba63.wav"
+    },
+    {
+      "sample": "../Samples/ab671d852281f9ddaa9ccf020f465d66f7e98fdc31e8c6925af28e4fb85e8959.wav"
+    },
+    {
+      "sample": "../Samples/eb271f155867d3d79ab501e1280b68ddf86d3f84be4c96ba2808370aee56d8e8.wav"
+    },
+    {
+      "sample": "../Samples/173bebad5a117ceb241cc191ccbed75d7665b5b0ca1cd5be82b0ca485db37796.wav"
+    },
+    {
+      "sample": "../Samples/5603c6cc522183038d496c55b0349de0e2424150acc55186bd5ffab2977b790c.wav"
+    },
+    {
+      "sample": "../Samples/d0ee92ee3c2f77048624a76cdd3503be96714dbb7fc6b369e1efaccb8e05ef3a.wav"
+    },
+    {
+      "sample": "../Samples/94bfd3737b35b221c8ec2950020d3c5ae86033b694ac4852d3adfb11c19bda7d.wav"
+    },
+    {
+      "sample": "../Samples/1c342ef1f1716ce6c5a939990cda87cf9fdc3d07f1f334dddab95a994de17e83.wav"
+    },
+    {
+      "sample": "../Samples/0d438b434adb42a201bcb4724de212b593e72349da33b22ae4a59cf05b8e40ba.wav"
+    },
+    {
+      "sample": "../Samples/9fd007171f1a3e479c42b91e52f87ec18dd556cad6686f6741386ad8d6600681.wav"
+    },
+    {
+      "sample": "../Samples/bd54fa7a873126277bbcd8a4d498937e7b8b8de80ae0979b1aff6125e5f78da0.wav"
+    },
+    {
+      "sample": "../Samples/6b68eabd822af59d15c0648f874a05379e63f270dd98036279abbeaf026c1852.wav"
+    },
+    {
+      "sample": "../Samples/fe6d10a3137b008d8efadd40dff7f4ef0fc6ffd1e1b08e5f0b955dd94c81a758.wav"
+    },
+    {
+      "sample": "../Samples/84bfa501ad0b3ef5b28ca55dae3fb2c23d0c89fbc2f61cf66334b04dc063c645.wav"
+    },
+    {
+      "sample": "../Samples/b30b4b6695eba4e7ff617ecee09e8625c3c2afa53aa56554851c993f776aeeb9.wav"
+    },
+    {
+      "sample": "../Samples/06236d44ca0266a57afd6e9408121ac5eb9b681818600ca87f82c241c34249d4.wav"
+    },
+    {
+      "sample": "../Samples/aa99754d2d5bc948ebd055528c3cc504dc373ec142a37e3de3bcd4be59334d7e.wav"
+    },
+    {
+      "sample": "../Samples/b5a83cbd42a2dc90bdff01abcae68d39a662214191edd6f63cf4efec072d9050.wav"
+    },
+    {
+      "sample": "../Samples/c9195b79a43db7be3f0713f22350fcfbc15347e9c9b1829ab5b18016fe5ec0e6.wav"
+    },
+    {
+      "sample": "../Samples/72d11d23b33a80188a93b3d4a8de75caae484bc3414c6090479fa1cb9a6027f5.wav"
+    },
+    {
+      "sample": "../Samples/68b32439c7aaa8515c9c345b5188b5afd7ffa7e0f7e0233c8db61f71db5f26fe.wav"
+    },
+    {
+      "sample": "../Samples/61171ed61e522ee110e35d6abbaca3dd2c5354d849acbd07e6cc271b1a8374eb.wav"
+    },
+    {
+      "sample": "../Samples/08fac77266295cefd61d014bbdb56e2bc1dcdddbbd0430563d9d2d45492ec445.wav"
+    },
+    {
+      "sample": "../Samples/825268fbceabcb06a36d0d27a6e059be962fc9b5f418aca70e024254bab65321.wav"
+    },
+    {
+      "sample": "../Samples/07f15f3ca43891a19953e06897d4be40df1711bce5aa7e36303190993b409a83.wav"
+    },
+    {
+      "sample": "../Samples/cbd8687e7c06489e54b57ad27d1eb8ee81457b947f4f0f557b94cc1a3e7fc378.wav"
+    },
+    {
+      "sample": "../Samples/750b9c02d43ab297fc6276cdeb663b34443ecfab4ac3cf0f714c3c61d553e631.wav"
+    },
+    {
+      "sample": "../Samples/2c4f669aab5a00a3ce3a116eaa9e512d437df9cb63325a36855a324dfd9204b4.wav"
+    },
+    {
+      "sample": "../Samples/e12efa46420546974326fe10202933e585776629a8b20eda7f298d04c7270a0c.wav"
+    },
+    {
+      "sample": "../Samples/350f37e051f3d5974af935dedbead8f2a7794ed321917b6ede26fc33bb31e3b3.wav"
+    },
+    {
+      "sample": "../Samples/6b34159edfd013f32491a378fcf7071cb4e6a0333a1d36ce34d4aad3a913c762.wav"
+    },
+    {
+      "sample": "../Samples/8e8e930297d72454f1771e91948c703640b19e87ec5735636f8613bdc870833f.wav"
+    }
+  ]
+}
