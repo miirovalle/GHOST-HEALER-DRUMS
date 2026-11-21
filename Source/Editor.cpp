@@ -447,6 +447,7 @@ DrumEditor::DrumEditor(DrumProcessor& p, MidiDragLauncher launcher)
     look.setColour(juce::TextButton::buttonColourId, gh::theme::ink);
     look.setColour(juce::TextButton::buttonOnColourId, gh::theme::inkBright);
     setLookAndFeel(&look);
+    look.setPopupsStayInsideEditor(processor.wrapperType == juce::AudioProcessor::wrapperType_AudioUnitv3);
     viewport.setViewedComponent(&body, false); addAndMakeVisible(viewport);
     gridViewport.setViewedComponent(&gridBody, false); sequenceBody.addAndMakeVisible(gridViewport);
     sequenceViewport.setViewedComponent(&sequenceBody, false);

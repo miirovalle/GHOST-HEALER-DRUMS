@@ -48,6 +48,21 @@ inline juce::Font font (float height, bool bold = false)
 class Look final : public juce::LookAndFeel_V4
 {
 public:
+    /** AUv3 hosts only render the plugin's own view, so popups must be children of it
+        rather than separate desktop windows, which would never be shown. */
+    void setPopupsStayInsideEditor (bool shouldStayInside) { popupsStayInside = shouldStayInside; }
+
+    juce::Component* getParentComponentForMenuOptions (const juce::PopupMenu::Options& options) override
+    {
+        if (! popupsStayInside)
+            return juce::LookAndFeel_V4::getParentComponentForMenuOptions (options);
+
+        if (auto* target = options.getTargetComponent())
+            return target->getTopLevelComponent();
+
+        return nullptr;
+    }
+
     Look()
     {
         setColour (juce::ResizableWindow::backgroundColourId, back);
@@ -259,5 +274,8 @@ public:
         g.drawFittedText (text, r.reduced (8.0f, 4.0f).toNearestInt(),
                           juce::Justification::centredLeft, 3);
     }
+
+private:
+    bool popupsStayInside = false;
 };
 } // namespace gh::theme
