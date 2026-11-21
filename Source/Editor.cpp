@@ -862,8 +862,8 @@ void DrumEditor::resized()
         const int count = std::min(controls, 7 - (i / controls) * controls);
         const int offset = (controlArea - (count * controlWidth + (count - 1) * gap)) / 2;
         const int x = 8 + offset + (i % controls) * (controlWidth + gap), top = y + (i / controls) * tileHeight;
-        knobs[static_cast<size_t>(i)]->setBounds(x, top + 2, controlWidth, 148);
-        captions[static_cast<size_t>(i)]->setBounds(x, top + 154, controlWidth, 40);
+        knobs[static_cast<size_t>(i)]->setBounds(x, top + 42, controlWidth, 148);
+        captions[static_cast<size_t>(i)]->setBounds(x, top + 2, controlWidth, 40);
     }
     if (wide)
     {
