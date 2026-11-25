@@ -29,7 +29,14 @@ Outputs:
 ```
 build/GhostDrums_artefacts/Release/VST3/GHOST HEALER DRUMS.vst3
 build/GhostDrums_artefacts/Release/Standalone/GHOST HEALER DRUMS.exe
+build/GhostDrumsMidi_artefacts/Release/VST3/GHOST HEALER DRUMS MIDI.vst3
+build/GhostDrumsMidi_artefacts/Release/Standalone/GHOST HEALER DRUMS MIDI.exe
 ```
+
+The second target, **GHOST HEALER DRUMS MIDI**, is the MIDI/CV routing hub:
+an audio pass-through effect with MIDI in/out/thru, channel and note-range
+filtering, transposition, velocity shaping and CV conversion. It is a separate
+plugin and does not embed the sample library.
 
 `COPY_PLUGIN_AFTER_BUILD` is `FALSE`, so the VST3 is not auto-installed.
 To install, copy the bundle to `C:\Program Files\Common Files\VST3\`.
@@ -60,7 +67,8 @@ cmake -S . -B build-ios -G Xcode \
       -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM=<YOUR_TEAM_ID>
 
 cmake --build build-ios --config Release \
-      --target GhostDrums_AUv3 GhostDrums_Standalone
+      --target GhostDrums_AUv3 GhostDrums_Standalone \
+               GhostDrumsMidi_AUv3 GhostDrumsMidi_Standalone
 ```
 
 Two products are produced:
@@ -69,6 +77,8 @@ Two products are produced:
 |---|---|---|
 | `GhostDrums_AUv3` | `GHOST HEALER DRUMS.appex` | The audio unit itself |
 | `GhostDrums_Standalone` | `GHOST HEALER DRUMS.app` | Container app that hosts the AUv3 |
+| `GhostDrumsMidi_AUv3` | `GHOST HEALER DRUMS MIDI.appex` | MIDI/CV routing hub audio unit |
+| `GhostDrumsMidi_Standalone` | `GHOST HEALER DRUMS MIDI.app` | Routing hub container app |
 
 Signing is automatic (`CODE_SIGN_STYLE = Automatic`). Designated requirement:
 set `CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM` to your Apple team ID.
@@ -171,8 +181,10 @@ Triggers:
 Artifacts per run:
 
 ```
-GHOST-HEALER-DRUMS-<version>-ios-unsigned.ipa   # Payload/GHOST HEALER DRUMS.app
+GHOST-HEALER-DRUMS-<version>-ios-unsigned.ipa              # Payload/GHOST HEALER DRUMS.app
 GHOST-HEALER-DRUMS-<version>-AUv3-unsigned.appex.zip
+GHOST-HEALER-DRUMS-MIDI-<version>-ios-unsigned.ipa         # Payload/GHOST HEALER DRUMS MIDI.app
+GHOST-HEALER-DRUMS-MIDI-<version>-AUv3-unsigned.appex.zip
 ```
 
 ### The runner needs the sample library

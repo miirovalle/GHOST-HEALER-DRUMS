@@ -14,6 +14,10 @@ juce::String DrumProcessor::padId(int slot, int control)
 {
     return "pad" + juce::String(slot + 1).paddedLeft('0', 2) + "_" + ids[static_cast<size_t>(control)];
 }
+juce::String DrumProcessor::midiNoteId(int slot)
+{
+    return "midiNote" + juce::String(slot + 1).paddedLeft('0', 2);
+}
 juce::AudioProcessorValueTreeState::ParameterLayout DrumProcessor::layout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout result;
@@ -37,6 +41,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout DrumProcessor::layout()
         juce::NormalisableRange<float>{20, 300, 0.1f}, 120.0f));
     result.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"midiOut", 1}, "Live MIDI output", false));
     result.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"koalaRecord", 1}, "Record to Koala", false));
+    result.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"midiIn", 1},
+        "External MIDI input", true));
+    result.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"midiOutPads", 1},
+        "Pad hits send MIDI", false));
+    result.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{"midiInChannel", 1},
+        "MIDI input channel", 0, 16, 0));
+    result.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{"midiOutChannel", 1},
+        "MIDI output channel", 1, 16, gh::midi::defaultChannel));
+    result.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"midiThru", 1},
+        "MIDI thru", juce::StringArray{"Trigger only", "Thru only", "Trigger + thru"}, 0));
+    result.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"midiVelocity", 1},
+        "MIDI velocity response", juce::StringArray{"Linear", "Soft", "Hard"}, 0));
+    result.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"midiCvMode", 1},
+        "MIDI / CV mode", juce::StringArray{"MIDI", "CV"}, 0));
+    result.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"cvGate", 1},
+        "CV gate time", juce::NormalisableRange<float>{5.0f, 2000.0f, 1.0f, 0.5f}, 120.0f));
+    for (int p = 0; p < gh::pads; ++p)
+        result.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{midiNoteId(p), 1},
+            "MIDI note for " + gh::noteLabel(p), 0, 127, gh::firstNote + p));
     return result;
 }
 DrumProcessor::DrumProcessor(juce::File library, std::unique_ptr<gh::MidiOutput> recordOutput,
@@ -52,6 +75,16 @@ DrumProcessor::DrumProcessor(juce::File library, std::unique_ptr<gh::MidiOutput>
     tempoParameter = state.getRawParameterValue("tempo");
     midiOutParameter = state.getRawParameterValue("midiOut");
     koalaRecordParameter = state.getRawParameterValue("koalaRecord");
+    midiInParameter = state.getRawParameterValue("midiIn");
+    midiOutPadsParameter = state.getRawParameterValue("midiOutPads");
+    midiInChannelParameter = state.getRawParameterValue("midiInChannel");
+    midiOutChannelParameter = state.getRawParameterValue("midiOutChannel");
+    midiThruParameter = state.getRawParameterValue("midiThru");
+    midiVelocityCurveParameter = state.getRawParameterValue("midiVelocity");
+    midiCvModeParameter = state.getRawParameterValue("midiCvMode");
+    cvGateParameter = state.getRawParameterValue("cvGate");
+    for (int p = 0; p < gh::pads; ++p)
+        midiNoteParameters[static_cast<size_t>(p)] = state.getRawParameterValue(midiNoteId(p));
     recordMidiOutput = std::move(recordOutput);
     clipboardWriter = std::move(writer);
 #if JUCE_IOS
@@ -81,8 +114,9 @@ void DrumProcessor::prepareToPlay(double rate, int)
     for (auto& output : midiOutputBuffers) { output.clear(); output.ensureSize((maxMidiEvents + gh::pads) * 9); }
     hostMidiFlush.clear(); hostMidiFlush.ensureSize(gh::pads * 9);
     primeMidiBuffer = true;
-    midiLifecycleStop = activeMidiNotes != 0;
+    midiLifecycleStop = activeMidiNotes != 0 || thruRouter.hasHeldNotes();
     engine.prepare(rate); engine.setKit(activeKit);
+    cv.setSampleRate(rate);
     clock.stop(); clock.setPattern(activePattern); gates.fill(false);
     lastPreview = false; lastPlaying = false; swapping = false;
     queuedHitCount = 0;
@@ -97,8 +131,9 @@ void DrumProcessor::releaseResources()
         recordMidiOutput->send(*blockMidiOutput, getSampleRate(), std::nullopt);
         blockMidiOutput = nullptr;
     }
-    midiLifecycleStop = activeMidiNotes != 0;
+    midiLifecycleStop = activeMidiNotes != 0 || thruRouter.hasHeldNotes();
     engine.reset(); clock.stop(); gates.fill(false);
+    cv.reset();
     preview.store(false); lastPreview = false;
     listenPreview.store(false, std::memory_order_relaxed);
     queuedHitCount = 0;
@@ -135,22 +170,46 @@ void DrumProcessor::drainRetired()
     auto* object = retired.exchange(nullptr, std::memory_order_acquire);
     while (object) { auto* next = object->next; delete object; object = next; }
 }
+void DrumProcessor::readMidiSettings()
+{
+    midiInEnabled = midiInParameter->load(std::memory_order_relaxed) > 0.5f;
+    padsMidiOut = midiOutPadsParameter->load(std::memory_order_relaxed) > 0.5f;
+    inChannel = juce::jlimit(0, 16, juce::roundToInt(midiInChannelParameter->load(std::memory_order_relaxed)));
+    outChannel = juce::jlimit(1, 16, juce::roundToInt(midiOutChannelParameter->load(std::memory_order_relaxed)));
+    thruMode = juce::jlimit(0, 2, juce::roundToInt(midiThruParameter->load(std::memory_order_relaxed)));
+    velocityCurve = juce::jlimit(0, 2, juce::roundToInt(midiVelocityCurveParameter->load(std::memory_order_relaxed)));
+    triggerFromMidi = thruMode != 1;
+    cvMode.store(midiCvModeParameter->load(std::memory_order_relaxed) > 0.5f, std::memory_order_relaxed);
+    cv.setDefaultGateTime(cvGateParameter->load(std::memory_order_relaxed) / 1000.0f);
+    for (int p = 0; p < gh::pads; ++p)
+        noteMap.setNote(p, juce::roundToInt(midiNoteParameters[static_cast<size_t>(p)]->load(std::memory_order_relaxed)));
+
+    gh::midi::Router::Settings routing;
+    routing.input = midiInEnabled;
+    routing.output = false;                    // generated notes use the note tables below
+    routing.thru = midiInEnabled && thruMode != 0;
+    routing.inputChannel = inChannel;
+    routing.outputChannel = outChannel;
+    thruRouter.setSettings(routing);
+}
 void DrumProcessor::handleMidi(const uint8_t* data, int size, int samplePosition)
 {
-    if (size < 3) return;
-    const int type = data[0] & 0xf0, channel = data[0] & 15;
+    if (size < 3 || ! midiInEnabled) return;
+    const int type = data[0] & 0xf0, channel = (data[0] & 15) + 1;
     const int note = data[1] & 127;
+    if (inChannel != 0 && channel != inChannel) return;
     if (type == 0xb0 && (note == 120 || note == 123))
     {
         gates.fill(false); clock.stop(); preview.store(false);
         stopMidiNotes(samplePosition);
+        flushThruNotes(samplePosition);
         engine.fadeVoices(false, 5); queuedHitCount = 0; return;
     }
     if (type != 0x80 && type != 0x90) return;
     const bool on = type == 0x90 && data[2] > 0;
     if (note == gh::gateNote)
     {
-        gates[static_cast<size_t>(channel)] = on;
+        gates[static_cast<size_t>(channel - 1)] = on;
         if (on) { stopMidiNotes(samplePosition); clock.start(data[2] / 127.0f, midiRoute != 2); }
         else if (std::none_of(gates.begin(), gates.end(), [](bool b) { return b; }) && ! preview.load())
         {
@@ -161,13 +220,27 @@ void DrumProcessor::handleMidi(const uint8_t* data, int size, int samplePosition
             queuedHitCount = keep;
         }
     }
-    else if (on) trigger(note - gh::firstNote, data[2] / 127.0f);
+    else if (on)
+    {
+        lastInNote.store(note, std::memory_order_relaxed);
+        lastInChannel.store(channel, std::memory_order_relaxed);
+        lastInVelocity.store(data[2], std::memory_order_relaxed);
+        midiInCount.fetch_add(1, std::memory_order_relaxed);
+        if (! triggerFromMidi) return;
+        const int slot = noteMap.slotForNote(note);
+        if (slot >= 0)
+        {
+            midiTriggerCount.fetch_add(1, std::memory_order_relaxed);
+            trigger(slot, gh::midi::applyVelocityCurve(data[2] / 127.0f, velocityCurve));
+        }
+    }
 }
-void DrumProcessor::trigger(int slot, float velocity, bool loop)
+void DrumProcessor::trigger(int slot, float velocity, bool loop, double durationSeconds)
 {
     if (slot < 0 || slot >= gh::pads) return;
+    if (cvMode.load(std::memory_order_relaxed)) cv.noteOn(noteMap.noteForSlot(slot), velocity, durationSeconds);
     if (! swapping) { engine.trigger(slot, velocity, loop); return; }
-    if (queuedHitCount < static_cast<int>(queuedHits.size())) queuedHits[static_cast<size_t>(queuedHitCount++)] = {slot, velocity, loop};
+    if (queuedHitCount < static_cast<int>(queuedHits.size())) queuedHits[static_cast<size_t>(queuedHitCount++)] = {slot, velocity, loop, durationSeconds};
     else droppedHits.fetch_add(1, std::memory_order_relaxed);
 }
 bool DrumProcessor::emitMidi(const juce::MidiMessage& message, int samplePosition)
@@ -187,43 +260,55 @@ bool DrumProcessor::emitMidi(const juce::MidiMessage& message, int samplePositio
 void DrumProcessor::stopMidiNotes(int samplePosition)
 {
     if (activeMidiNotes == 0) return;
-    for (size_t slot = 0; slot < midiNoteBeats.size(); ++slot)
-        if (midiNoteBeats[slot] > 0)
+    for (auto& sent : sentNotes)
+        if (sent.note >= 0)
         {
-            blockMidiOutput->addEvent(juce::MidiMessage::noteOff(10, gh::firstNote + static_cast<int>(slot)), samplePosition);
+            blockMidiOutput->addEvent(juce::MidiMessage::noteOff(sent.channel, sent.note), samplePosition);
             ++midiEventCount;
-            midiNoteBeats[slot] = 0;
+            sent = {};
         }
     activeMidiNotes = 0;
+}
+void DrumProcessor::flushThruNotes(int samplePosition)
+{
+    if (! thruRouter.hasHeldNotes()) return;
+    // Passed-through notes always belong to the host, never to the Koala record route.
+    thruRouter.releaseAll(samplePosition, hostMidiFlush);
 }
 void DrumProcessor::tickMidiNotes(double beatsPerSample, int samplePosition)
 {
     if (activeMidiNotes == 0) return;
-    for (size_t slot = 0; slot < midiNoteBeats.size(); ++slot)
-        if (midiNoteBeats[slot] > 0)
+    for (auto& sent : sentNotes)
+        if (sent.note >= 0)
         {
-            const auto remaining = midiNoteBeats[slot] - beatsPerSample;
+            const auto remaining = sent.beats - beatsPerSample;
             if (remaining <= 1.0e-12)
             {
-                if (! emitMidi(juce::MidiMessage::noteOff(10, gh::firstNote + static_cast<int>(slot)), samplePosition)) return;
-                midiNoteBeats[slot] = 0; --activeMidiNotes;
+                if (! emitMidi(juce::MidiMessage::noteOff(sent.channel, sent.note), samplePosition)) return;
+                sent = {}; --activeMidiNotes;
             }
-            else midiNoteBeats[slot] = remaining;
+            else sent.beats = remaining;
         }
 }
 void DrumProcessor::triggerMidiNote(int slot, float velocity, double duration, int samplePosition)
 {
     if (midiAborted || slot < 0 || slot >= gh::pads) return;
-    auto& remaining = midiNoteBeats[static_cast<size_t>(slot)];
-    const int note = gh::firstNote + slot;
-    if (remaining > 0)
+    auto& sent = sentNotes[static_cast<size_t>(slot)];
+    if (sent.note >= 0)
     {
-        if (! emitMidi(juce::MidiMessage::noteOff(10, note), samplePosition)) return;
-        remaining = 0; --activeMidiNotes;
+        if (! emitMidi(juce::MidiMessage::noteOff(sent.channel, sent.note), samplePosition)) return;
+        sent = {}; --activeMidiNotes;
     }
-    const auto value = static_cast<juce::uint8>(juce::jlimit(1, 127, juce::roundToInt(velocity * 127)));
-    if (emitMidi(juce::MidiMessage::noteOn(10, note, value), samplePosition))
-    { remaining = std::max(duration, 1.0e-9); ++activeMidiNotes; }
+    const int note = noteMap.noteForSlot(slot);
+    const auto value = gh::midi::velocityToByte(velocity);
+    if (emitMidi(juce::MidiMessage::noteOn(outChannel, note, value), samplePosition))
+    {
+        sent.note = note; sent.channel = outChannel; sent.beats = std::max(duration, 1.0e-9);
+        ++activeMidiNotes;
+        lastOutNote.store(note, std::memory_order_relaxed);
+        lastOutChannel.store(outChannel, std::memory_order_relaxed);
+        midiOutCount.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 void DrumProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
@@ -252,6 +337,7 @@ void DrumProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     if (routeChanged)
     {
         stopMidiNotes(0);
+        flushThruNotes(0);
         if (midiRoute == 2) recordMidiOutput->send(*blockMidiOutput, getSampleRate(), hostTimeNs);
         else if (midiRoute == 1) hostMidiFlush.addEvents(*blockMidiOutput, 0, -1, 0);
         blockMidiOutput->clear();
@@ -271,14 +357,16 @@ void DrumProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             queuedHitCount = keep;
         }
     }
-    if (midiLifecycleStop) { stopMidiNotes(0); midiLifecycleStop = false; }
+    if (midiLifecycleStop) { stopMidiNotes(0); flushThruNotes(0); midiLifecycleStop = false; }
     const auto values = readPads();
+    readMidiSettings();
     const auto master = masterParameter->load(std::memory_order_relaxed);
     const auto saturation = satParameter->load(std::memory_order_relaxed);
     engine.setValues(values, master, saturation);
     if (auto* pattern = pendingPattern.exchange(nullptr, std::memory_order_acquire))
     {
         stopMidiNotes(0);
+        flushThruNotes(0);
         retire(activePattern); activePattern = pattern; clock.setPattern(pattern);
     }
     if (pendingKit.load(std::memory_order_acquire) && ! swapping)
@@ -287,6 +375,7 @@ void DrumProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     if (sequenceStopped)
     {
         stopMidiNotes(0);
+        flushThruNotes(0);
         gates.fill(false); clock.stop(); engine.fadeVoices(true, 5);
         lastPreview = false;
         int keep = 0;
@@ -309,7 +398,7 @@ void DrumProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             if (! sequenceStopped && playing && (! lastPlaying || routeChanged)) { stopMidiNotes(0); clock.start(1, false); }
             if (! playing && lastPlaying)
             {
-                stopMidiNotes(0); clock.stop(); gates.fill(false);
+                stopMidiNotes(0); flushThruNotes(0); clock.stop(); gates.fill(false);
                 preview.store(false, std::memory_order_relaxed); lastPreview = false;
             }
         }
@@ -318,7 +407,7 @@ void DrumProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             gates.fill(false);
             if (! play || midiRoute == 1)
             {
-                stopMidiNotes(0); clock.stop(); engine.fadeVoices(true, 5);
+                stopMidiNotes(0); flushThruNotes(0); clock.stop(); engine.fadeVoices(true, 5);
                 if (midiRoute == 1) { preview.store(false, std::memory_order_relaxed); lastPreview = false; }
             }
         }
@@ -326,13 +415,25 @@ void DrumProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     }
     int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
     auditionFifo.prepareToRead(auditionFifo.getNumReady(), start1, size1, start2, size2);
-    for (int i = 0; i < size1; ++i) trigger(auditionNotes[static_cast<size_t>(start1 + i)], 1);
-    for (int i = 0; i < size2; ++i) trigger(auditionNotes[static_cast<size_t>(start2 + i)], 1);
+    for (int i = 0; i < size1; ++i)
+    {
+        const auto slot = auditionNotes[static_cast<size_t>(start1 + i)];
+        trigger(slot, 1);
+        if (padsMidiOut && midiRoute != 0) triggerMidiNote(slot, 1.0f, 0.05, 0);
+    }
+    for (int i = 0; i < size2; ++i)
+    {
+        const auto slot = auditionNotes[static_cast<size_t>(start2 + i)];
+        trigger(slot, 1);
+        if (padsMidiOut && midiRoute != 0) triggerMidiNote(slot, 1.0f, 0.05, 0);
+    }
     auditionFifo.finishedRead(size1 + size2);
-    if (! engine.hasVoices() && ! clock.isActive() && midi.isEmpty() && ! swapping
+    const bool cvOutput = cvMode.load(std::memory_order_relaxed);
+    if (! engine.hasVoices() && ! clock.isActive() && midi.isEmpty() && ! swapping && ! cvOutput
         && activeMidiNotes == 0 && blockMidiOutput->isEmpty() && hostMidiFlush.isEmpty())
     { buffer.clear(); blockMidiOutput = nullptr; return; }
     const auto beatsPerSample = bpm / (60 * getSampleRate());
+    const auto secondsPerBeat = bpm > 0 ? 60.0 / bpm : 0.5;
     auto event = midi.cbegin();
     for (int s = 0; s < buffer.getNumSamples(); ++s)
     {
@@ -345,22 +446,36 @@ void DrumProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             }
             swapping = false;
             for (int i = 0; i < queuedHitCount; ++i)
-            { const auto& hit = queuedHits[static_cast<size_t>(i)]; engine.trigger(hit.slot, hit.velocity, hit.loop); }
+            {
+                const auto& hit = queuedHits[static_cast<size_t>(i)];
+                engine.trigger(hit.slot, hit.velocity, hit.loop);
+                if (cvOutput) cv.noteOn(noteMap.noteForSlot(hit.slot), hit.velocity, hit.seconds);
+            }
             queuedHitCount = 0;
         }
         while (event != midi.cend() && (*event).samplePosition <= s)
-        { const auto e = *event; handleMidi(e.data, e.numBytes, s); ++event; }
+        {
+            const auto e = *event;
+            // THRU is host-bound, so it is never dropped when the generated-note route is off.
+            if (midiInEnabled && thruMode != 0 && ! midiAborted)
+                thruRouter.route(e.getMessage(), s, hostMidiFlush);
+            handleMidi(e.data, e.numBytes, s);
+            ++event;
+        }
         tickMidiNotes(beatsPerSample, s);
         const bool wasActive = clock.isActive();
-        clock.process(beatsPerSample, [this, s](int slot, float velocity, double duration)
+        clock.process(beatsPerSample, [this, s, secondsPerBeat](int slot, float velocity, double duration)
         {
-            if (midiRoute != 2) trigger(slot, velocity, true);
+            if (midiRoute != 2) trigger(slot, velocity, true, duration * secondsPerBeat);
             if (midiRoute != 0) triggerMidiNote(slot, velocity, duration, s);
         });
         if (midiRoute == 2 && wasActive && ! clock.isActive())
         { preview.store(false, std::memory_order_relaxed); lastPreview = false; }
         float left = 0, right = 0; engine.process(left, right);
-        buffer.setSample(0, s, buffer.getNumChannels() > 1 ? left : (left + right) * 0.5f);
+        float cvPitch = 0, cvGate = 0;
+        cv.render(cvPitch, cvGate);
+        if (cvOutput) { left = cvPitch; right = cvGate; }
+        buffer.setSample(0, s, buffer.getNumChannels() > 1 ? left : (cvOutput ? cvPitch : (left + right) * 0.5f));
         if (buffer.getNumChannels() > 1) buffer.setSample(1, s, right);
         for (int c = 2; c < buffer.getNumChannels(); ++c) buffer.setSample(c, s, 0);
     }
@@ -384,6 +499,19 @@ DrumProcessor::View DrumProcessor::getView() const
     return current;
 }
 gh::Grid DrumProcessor::getGrid() const { std::lock_guard<std::mutex> lock(mutex); return grid; }
+DrumProcessor::Monitor DrumProcessor::getMidiMonitor() const
+{
+    Monitor monitor;
+    monitor.inCount = midiInCount.load(std::memory_order_relaxed);
+    monitor.outCount = midiOutCount.load(std::memory_order_relaxed);
+    monitor.triggerCount = midiTriggerCount.load(std::memory_order_relaxed);
+    monitor.lastInNote = lastInNote.load(std::memory_order_relaxed);
+    monitor.lastInChannel = lastInChannel.load(std::memory_order_relaxed);
+    monitor.lastInVelocity = lastInVelocity.load(std::memory_order_relaxed);
+    monitor.lastOutNote = lastOutNote.load(std::memory_order_relaxed);
+    monitor.lastOutChannel = lastOutChannel.load(std::memory_order_relaxed);
+    return monitor;
+}
 void DrumProcessor::setGrid(const gh::Grid& next, bool startPlayback)
 {
     {
@@ -922,10 +1050,14 @@ bool DrumProcessor::copyMidiToClipboard(std::optional<uint64_t> expectedRevision
 }
 std::optional<juce::String> DrumProcessor::getNameForMidiNoteNumber(int note, int)
 {
-    if (note == gh::gateNote) return "Loop gate (MIDI 1)";
-    if (note < gh::firstNote || note >= gh::firstNote + gh::pads) return std::nullopt;
-    const int pad = note - gh::firstNote;
-    return gh::noteLabel(pad) + " " + gh::roles[static_cast<size_t>(pad % 12)];
+    if (note == gh::midi::gateNote) return "Loop gate (MIDI 1)";
+    for (int p = 0; p < gh::pads; ++p)
+    {
+        const auto* parameter = state.getRawParameterValue(midiNoteId(p));
+        if (parameter && juce::roundToInt(parameter->load(std::memory_order_relaxed)) == note)
+            return gh::noteLabel(p) + " " + gh::roles[static_cast<size_t>(p % 12)];
+    }
+    return std::nullopt;
 }
 void DrumProcessor::getStateInformation(juce::MemoryBlock& memory)
 {

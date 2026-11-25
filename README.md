@@ -153,11 +153,13 @@ shown, then place that Pattern in the Playlist with the Draw tool.
 for hosts that reject a plugin-originated native drag.
 See the [official FL MIDI import instructions](https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/automation_midiimport.htm).
 MIDI output/routing is separate from file import and does not automatically
-insert a Playlist Pattern. **Live MIDI out** enables generated note output
-on channel 10, default off. It outputs mapped notes 36â€“83, velocity and
-sample-timed note-offs; it does not echo pad input or loop-trigger note 1.
-Normal sampler audio remains enabled. Configure the host's MIDI output
-routing and recording separately. Stop, gate release, output-disable,
+insert a Playlist Pattern. **Live MIDI out** enables generated note output,
+default off. The channel (1-16, default 10), the pad-to-note table and the
+velocity response are set in the **MIDI / CV** panel. It outputs mapped
+notes, the played velocity and sample-timed note-offs; it does not echo pad
+input or loop-trigger note 1 unless **Pads > MIDI** or a MIDI THRU mode is
+selected. Normal sampler audio remains enabled. Configure the host's MIDI
+output routing and recording separately. Stop, gate release, output-disable,
 pattern replacement and same-note retriggers release outstanding notes.
 Host transport stop also stops MIDI-enabled preview; with output off,
 the existing independent audio-preview behaviour remains unchanged.
@@ -224,6 +226,64 @@ Official references: [Koala MIDI settings](https://manual.koalasampler.com/mobil
 [Koala sample/AUv3 hosting](https://manual.koalasampler.com/mobile/4-sample/),
 [Koala sequencing](https://manual.koalasampler.com/mobile/5-sequence/),
 [Little Drum Machine manual](https://www.snorkelaudio.com/little-drum-machine/manual/).
+
+## MIDI IN, OUT, THRU and CV
+
+The editor's **MIDI / CV** panel controls every external connection:
+
+- **MIDI in** (on by default) lets Drambo MIDI racks, sequencers, controllers,
+  external drum machines and other plugins play the pads. Numeric note 1 still
+  gates the selected loop. **In channel** filters 1-16 or **All**;
+  **Velocity** selects linear, soft or hard response. Only notes present in the
+  pad note table trigger pads.
+- **Selected pad note** edits the note of the pad chosen in the pad grid, so
+  input and output share one configurable 48-entry table (default `36`-`83`).
+  Host drum maps follow the same table.
+- **Live MIDI out** sends loop notes and, with **Pads > MIDI**, pad hits on the
+  **Out channel**. Velocity is preserved and note-offs stay sample-accurate
+  across block boundaries.
+- **Thru mode** chooses the three routing modes: **Trigger only** (default,
+  1.0.8 behaviour, input is not echoed), **Thru only** (input is forwarded
+  untouched and does not play the kit) and **Trigger + thru** (both at once).
+  Forwarded notes go to the host on their original channel and are released on
+  stop, panic (CC 120/123), route change, preset load and plugin deactivation
+  so no external synth is left with stuck notes. Live input is never echoed
+  back into the plugin's own MIDI output, which is what prevents feedback loops
+  inside the instrument.
+- **Signal mode / CV** replaces the stereo audio output with control voltage
+  for a DC-coupled interface: **left = 1 V/oct pitch** (MIDI note 60 = 0 V) and
+  **right = gate 0-1 V** scaled by velocity. Gate length for live hits is set
+  by **CV gate**; loop hits use the pattern's own note length. CV mode is not
+  an analog connection by itself: route the plugin to a DC-coupled audio
+  output (or a MIDI-CV interface that accepts audio-rate CV), and expect no
+  audio while CV mode is active.
+
+## GHOST HEALER DRUMS MIDI
+
+The second plugin built from this source is a routing hub that can sit before,
+after or beside the instrument:
+
+| Control | Meaning |
+|---|---|
+| **MIDI IN** / **MIDI channel** | Accept all MIDI or one channel only |
+| **MIDI OUT** / **MIDI channel** | Send filtered, transposed, channel-remapped notes |
+| **MIDI THRU** | Forward accepted input untouched to external instruments |
+| **Transpose**, **Note range** | Shift and limit the note stream |
+| **Velocity scale** / **curve** | Trim and shape outgoing velocity |
+| **Signal mode** | `MIDI` passes audio through; `CV` writes pitch/gate CV to the output |
+| **CV IN** / threshold | Convert a DC-coupled pitch + gate input into MIDI notes |
+| **Monitor** | Incoming/outgoing note counts, last note, velocity and channel |
+
+Both MIDI OUT and MIDI THRU can run at once, so one controller can play the
+drums and an external synth simultaneously. Identical thru and output events
+are only sent once. Notes held by either path are released when the routing
+changes or the plugin is deactivated. A MIDI plugin cannot detect loops in the
+host's own routing graph, so keep the host's MIDI feedback monitoring enabled
+when chaining it back into its own input.
+
+Both plugins need a host that exposes MIDI input/output for the format in use;
+AUv3 MIDI output support and CV routing depend on the host, and CV requires a
+DC-coupled audio interface or a MIDI-CV converter.
 
 ## Import and save kits
 

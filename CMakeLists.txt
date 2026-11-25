@@ -44,6 +44,24 @@ target_compile_definitions(GhostDrums PUBLIC
 target_link_libraries(GhostDrums PRIVATE juce::juce_audio_utils
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags)
+
+# Routing hub: audio pass-through effect with MIDI in/out/thru and CV conversion.
+juce_add_plugin(GhostDrumsMidi
+    PRODUCT_NAME "GHOST HEALER DRUMS MIDI" COMPANY_NAME "MK Audio"
+    BUNDLE_ID "audio.mk.ghostdrumsmidi" PLUGIN_MANUFACTURER_CODE Mkau PLUGIN_CODE Ghmd
+    IS_SYNTH FALSE NEEDS_MIDI_INPUT TRUE NEEDS_MIDI_OUTPUT TRUE
+    EDITOR_WANTS_KEYBOARD_FOCUS FALSE COPY_PLUGIN_AFTER_BUILD FALSE
+    NEEDS_WEB_BROWSER FALSE NEEDS_CURL FALSE
+    AU_MAIN_TYPE kAudioUnitType_Effect VST3_CATEGORIES Fx
+    FORMATS ${GH_FORMATS})
+target_sources(GhostDrumsMidi PRIVATE Source/MidiProcessor.cpp Source/MidiEditor.cpp)
+target_compile_definitions(GhostDrumsMidi PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_USE_FLAC=0 JUCE_USE_OGGVORBIS=0 JUCE_USE_OPUS=0
+    JUCE_USE_MP3AUDIOFORMAT=0 JUCE_USE_WINDOWS_MEDIA_FORMAT=0)
+target_link_libraries(GhostDrumsMidi PRIVATE juce::juce_audio_utils
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags)
 if(WIN32)
     target_sources(GhostDrums PRIVATE Source/WindowsMidiDrag.cpp Source/WindowsMidiClipboard.cpp)
     target_link_libraries(GhostDrums PRIVATE shell32 ole32)
@@ -53,7 +71,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(GhostDrums PRIVATE "-framework CoreMIDI")
     set_source_files_properties(Source/iOSMidiShare.mm Source/iOSMidiOutput.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
     set_target_properties(GhostDrums PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/shared")
-    foreach(t GhostDrums_AUv3 GhostDrums_Standalone)
+    foreach(t GhostDrums_AUv3 GhostDrums_Standalone GhostDrumsMidi_AUv3 GhostDrumsMidi_Standalone)
         set_target_properties(${t} PROPERTIES XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
             XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic)
         if(GH_OPTIMISE_FOR_IPAD)
@@ -99,5 +117,10 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         target_compile_definitions(GhostTests PRIVATE JUCE_MODAL_LOOPS_PERMITTED=1)
         target_link_libraries(GhostTests PRIVATE GhostDrums juce::juce_audio_utils)
         add_test(NAME GhostTests COMMAND GhostTests "${GH_LIBRARY_DIR}")
+        juce_add_console_app(GhostMidiTests PRODUCT_NAME "Ghost MIDI plugin tests")
+        target_sources(GhostMidiTests PRIVATE Tests/MidiPluginTests.cpp)
+        target_include_directories(GhostMidiTests PRIVATE Source)
+        target_link_libraries(GhostMidiTests PRIVATE GhostDrumsMidi juce::juce_audio_utils)
+        add_test(NAME GhostMidiTests COMMAND GhostMidiTests)
     endif()
 endif()

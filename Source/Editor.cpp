@@ -513,8 +513,71 @@ DrumEditor::DrumEditor(DrumProcessor& p, MidiDragLauncher launcher)
     exportButton.setTooltip("FL Studio: drop onto this instrument's piano roll or Channel Rack, then place the resulting Pattern in the Playlist. Other hosts choose their own MIDI import target.");
     exportButton.onClick = [this] { processor.report("FL Studio: drag to the piano roll or Channel Rack, then place the Pattern in the Playlist. Save MIDI file opens Explorer for file import."); };
     saveMidi.onClick = [this] { const auto file = processor.exportMidi(); if (file.existsAsFile()) file.revealToUser(); };
-    midiOut.setTooltip("Send generated loop notes on MIDI channel 10. Route this output in the host to record it. Does not insert notes directly into a host's piano roll.");
+    midiOut.setTooltip("Send generated loop notes on the selected MIDI channel. Route this output in the host to record it. Does not insert notes directly into a host's piano roll.");
     midiOutAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(processor.state, "midiOut", midiOut);
+    midiTitle.setText("MIDI / CV", juce::dontSendNotification);
+    midiTitle.setFont(juce::Font(juce::FontOptions(18.0f)));
+    midiTitle.setColour(juce::Label::textColourId, gold);
+    for (auto* component : std::initializer_list<juce::Component*>{
+        &midiTitle, &midiIn, &midiOutPads, &midiMonitor, &inChannelLabel, &inChannel,
+        &outChannelLabel, &outChannel, &thruLabel, &thruMode, &velocityLabel, &velocityCurve,
+        &modeLabel, &cvMode, &padNoteLabel, &padNote, &cvGateLabel, &cvGate})
+        body.addAndMakeVisible(component);
+    const auto caption = [](juce::Label& label, const juce::String& text)
+    {
+        label.setText(text, juce::dontSendNotification);
+        label.setFont(juce::Font(juce::FontOptions(13.0f)));
+        label.setColour(juce::Label::textColourId, gh::theme::textLight);
+        label.setJustificationType(juce::Justification::centredRight);
+    };
+    caption(inChannelLabel, "In channel"); caption(outChannelLabel, "Out channel");
+    caption(thruLabel, "Thru mode"); caption(velocityLabel, "Velocity");
+    caption(modeLabel, "Signal mode"); caption(padNoteLabel, "Selected pad note");
+    caption(cvGateLabel, "CV gate time");
+    cvGate.setSliderStyle(juce::Slider::LinearHorizontal);
+    cvGate.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 24);
+    cvGate.setRange(5.0, 2000.0, 1.0);
+    cvGate.setTextValueSuffix(" ms");
+    cvGate.setTooltip("Gate length for live hits in CV mode. Loop hits use the pattern's own note length.");
+    cvGateAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.state, "cvGate", cvGate);
+    midiIn.setTooltip("Let external MIDI (Drambo, a sequencer, a controller) trigger pads and the loop gate.");
+    midiInAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(processor.state, "midiIn", midiIn);
+    midiOutPads.setTooltip("Also send every pad hit on the MIDI output. Live MIDI input is never echoed back to avoid feedback.");
+    midiOutPadsAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(processor.state, "midiOutPads", midiOutPads);
+    inChannel.addItem("All", 1);
+    for (int c = 1; c <= 16; ++c) inChannel.addItem("Channel " + juce::String(c), c + 1);
+    inChannel.setTooltip("Accept notes from one channel only, or from every channel.");
+    inChannelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(processor.state, "midiInChannel", inChannel);
+    for (int c = 1; c <= 16; ++c) outChannel.addItem("Channel " + juce::String(c), c + 1);
+    outChannel.setTooltip("Channel used for loop playback, pad hits and MIDI THRU remapping.");
+    outChannelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(processor.state, "midiOutChannel", outChannel);
+    thruMode.addItemList({"Trigger only", "Thru only", "Trigger + thru"}, 1);
+    thruMode.setTooltip("Trigger only: input plays this kit. Thru only: input is forwarded untouched. Trigger + thru: both.");
+    thruModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(processor.state, "midiThru", thruMode);
+    velocityCurve.addItemList({"Linear", "Soft", "Hard"}, 1);
+    velocityCurve.setTooltip("Velocity response for incoming MIDI. Outgoing notes always keep the played velocity.");
+    velocityCurveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(processor.state, "midiVelocity", velocityCurve);
+    cvMode.addItemList({"MIDI", "CV"}, 1);
+    cvMode.setTooltip("CV replaces the stereo audio output with 1 V/oct pitch CV (left) and gate CV 0-1 V (right) for a DC-coupled interface.");
+    cvModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(processor.state, "midiCvMode", cvMode);
+    for (int note = 0; note < 128; ++note)
+        padNote.addItem(juce::MidiMessage::getMidiNoteName(note, true, true, 3) + " (" + juce::String(note) + ")", note + 1);
+    padNote.setTooltip("MIDI note that plays the selected pad, used for input and output alike.");
+    padNote.onChange = [this]
+    {
+        if (bindingPadNote) return;
+        if (auto* parameter = processor.state.getParameter(DrumProcessor::midiNoteId(selected)))
+        {
+            const auto note = padNote.getSelectedId() - 1;
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(static_cast<float>(note)));
+            updateInspector();
+        }
+    };
+    midiMonitor.setName("MIDI activity");
+    midiMonitor.setFont(juce::Font(juce::FontOptions(13.0f)));
+    midiMonitor.setColour(juce::Label::textColourId, gh::theme::textDim);
+    midiMonitor.setTooltip("Incoming and outgoing MIDI activity, updated while the plugin runs.");
+    midiMonitor.setText("IN 0  hits 0   |   OUT 0", juce::dontSendNotification);
 #if JUCE_IOS
     body.addAndMakeVisible(koalaRecord);
     koalaRecord.setTooltip("Send one loop to the GHOST HEALER DRUMS Record MIDI input. Arm Record in Koala, with this instrument pad in chromatic keyboard mode on channel 10. If Koala does not start the loop, tap Play loop. Internal loop audio is muted to prevent doubled hits.");
@@ -651,9 +714,14 @@ DrumEditor::DrumEditor(DrumProcessor& p, MidiDragLauncher launcher)
     int defaultWidth = 1060, defaultHeight = 960;
     if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
     {
-        const auto area = display->userArea;
-        defaultWidth = juce::jmin(defaultWidth, juce::jmax(360, area.getWidth() - 8));
-        defaultHeight = juce::jmin(defaultHeight, juce::jmax(320, area.getHeight() - 8));
+        // Some AUv3 hosts report an empty or swapped display while the editor is
+        // being created, so only clamp against a usable area.
+        const auto area = display->userBounds.getSmallestIntegerContainer();
+        if (area.getWidth() >= 360 && area.getHeight() >= 320)
+        {
+            defaultWidth = juce::jmin(defaultWidth, juce::jmax(360, area.getWidth() - 8));
+            defaultHeight = juce::jmin(defaultHeight, juce::jmax(320, area.getHeight() - 8));
+        }
     }
     setSize(defaultWidth, defaultHeight);
     startTimerHz(5);
@@ -667,6 +735,7 @@ DrumEditor::~DrumEditor()
 void DrumEditor::selectPad(int pad)
 {
     selected = pad;
+    bindPadNote(pad);
     updateInspector();
     inspector.setColour(juce::Label::textColourId, roleColour(pad % 12));
     for (int i = 0; i < gh::pads; ++i) pads[static_cast<size_t>(i)]->setToggleState(i == selected, juce::dontSendNotification);
@@ -682,12 +751,22 @@ void DrumEditor::selectPad(int pad)
     if (low && high) cutoffBar.bind(*low, *high);
     else processor.report("Could not bind filter controls.", true);
 }
+void DrumEditor::bindPadNote(int pad)
+{
+    bindingPadNote = true;
+    if (const auto* parameter = processor.state.getRawParameterValue(DrumProcessor::midiNoteId(pad)))
+        padNote.setSelectedId(juce::jlimit(0, 127, juce::roundToInt(parameter->load())) + 1, juce::dontSendNotification);
+    bindingPadNote = false;
+}
 void DrumEditor::updateInspector()
 {
     const auto& name = padNames[static_cast<size_t>(selected)];
+    int note = selected + gh::firstNote;
+    if (const auto* parameter = processor.state.getRawParameterValue(DrumProcessor::midiNoteId(selected)))
+        note = juce::roundToInt(parameter->load());
     inspector.setText(gh::noteLabel(selected) + "  "
         + (name.isNotEmpty() ? name : juce::String(gh::roles[static_cast<size_t>(selected % 12)]))
-        + "  |  MIDI " + juce::String(selected + gh::firstNote), juce::dontSendNotification);
+        + "  |  MIDI " + juce::String(note), juce::dontSendNotification);
 }
 void DrumEditor::refresh()
 {
@@ -749,7 +828,7 @@ void DrumEditor::refresh()
         + (v.importInfo.isNotEmpty() ? "\n" + v.importInfo : juce::String()), juce::dontSendNotification);
     status.setTooltip(v.importInfo);
     status.setColour(juce::Label::textColourId, v.error ? juce::Colour(0xffe8a08c) : gh::theme::textLight);
-    padNames = v.padNames; updateInspector();
+    padNames = v.padNames; bindPadNote(selected); updateInspector();
     refreshGrid(); refreshing = false;
 }
 void DrumEditor::refreshGrid()
@@ -807,6 +886,20 @@ void DrumEditor::timerCallback()
     listen.setButtonText(listening ? "Stop listen" : "Listen");
     listen.setName("Listen loop");
     sequencePlay.setToggleState(processor.isPreviewing(), juce::dontSendNotification);
+    const auto monitor = processor.getMidiMonitor();
+    const auto noteName = [](int note)
+    {
+        return note < 0 ? juce::String("-") : juce::MidiMessage::getMidiNoteName(note, true, true, 3);
+    };
+    midiMonitor.setText("IN " + juce::String(monitor.inCount)
+        + "  hits " + juce::String(monitor.triggerCount)
+        + "  last " + noteName(monitor.lastInNote)
+        + (monitor.lastInNote >= 0 ? " v" + juce::String(monitor.lastInVelocity)
+            + " ch" + juce::String(monitor.lastInChannel) : juce::String())
+        + "   |   OUT " + juce::String(monitor.outCount)
+        + "  last " + noteName(monitor.lastOutNote)
+        + (monitor.lastOutNote >= 0 ? " ch" + juce::String(monitor.lastOutChannel) : juce::String())
+        + (processor.isCvMode() ? "   |   CV OUT" : juce::String()), juce::dontSendNotification);
 }
 void DrumEditor::paint(juce::Graphics& g) { g.fillAll(gh::theme::back); }
 void DrumEditor::resized()
@@ -841,6 +934,53 @@ void DrumEditor::resized()
     }
     else if (w >= 560) row({&exportButton, &saveMidi, &midiOut});
     else { row({&exportButton, &saveMidi}); row({&midiOut}); }
+    row({&midiTitle}, 30);
+    const auto pairRow = [w, &y](std::initializer_list<std::pair<juce::Label*, juce::Component*>> items, int height = 44)
+    {
+        if (items.size() == 0) return;
+        const auto count = static_cast<int>(items.size());
+        const int width = (w - 16) / count;
+        int x = 8;
+        for (auto& item : items)
+        {
+            auto cell = juce::Rectangle<int>(x + 2, y + 2, width - 4, height - 4);
+            auto captionArea = cell.removeFromLeft(juce::jmax(64, cell.getWidth() / 2));
+            item.first->setBounds(captionArea.reduced(4, 0));
+            item.second->setBounds(cell);
+            x += width;
+        }
+        y += height;
+    };
+    row({&midiIn, &midiOutPads});
+    if (w >= 950)
+        pairRow({{&inChannelLabel, &inChannel}, {&outChannelLabel, &outChannel}, {&thruLabel, &thruMode}});
+    else if (w >= 560)
+    {
+        pairRow({{&inChannelLabel, &inChannel}, {&outChannelLabel, &outChannel}});
+        pairRow({{&thruLabel, &thruMode}});
+    }
+    else
+    {
+        pairRow({{&inChannelLabel, &inChannel}});
+        pairRow({{&outChannelLabel, &outChannel}});
+        pairRow({{&thruLabel, &thruMode}});
+    }
+    if (w >= 950)
+        pairRow({{&modeLabel, &cvMode}, {&velocityLabel, &velocityCurve}, {&padNoteLabel, &padNote}});
+    else if (w >= 560)
+    {
+        pairRow({{&modeLabel, &cvMode}, {&velocityLabel, &velocityCurve}});
+        pairRow({{&padNoteLabel, &padNote}, {&cvGateLabel, &cvGate}});
+    }
+    else
+    {
+        pairRow({{&modeLabel, &cvMode}});
+        pairRow({{&velocityLabel, &velocityCurve}});
+        pairRow({{&padNoteLabel, &padNote}});
+        pairRow({{&cvGateLabel, &cvGate}});
+    }
+    if (w >= 950) pairRow({{&cvGateLabel, &cvGate}});
+    row({&midiMonitor}, 36);
     const int columns = w >= 850 ? 12 : w >= 560 ? 6 : 4;
     const int cell = (w - 16) / columns;
     for (int i = 0; i < gh::pads; ++i) pads[static_cast<size_t>(i)]->setBounds(8 + (i % columns) * cell, y + (i / columns) * 48, cell, 48);

@@ -246,12 +246,37 @@ per-pad filter and compressor work dominates the per-voice fetch.
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --target GhostTests
+cmake --build build --config Release --target GhostTests GhostMidiTests
 
 build/GhostTests_artefacts/Release/GhostTests.exe Content
 build/GhostTests_artefacts/Release/GhostTests.exe Content --profile
 build/GhostTests_artefacts/Release/GhostTests.exe x --check-dsp-reference Tests/dsp_reference.bin
+build/GhostMidiTests_artefacts/Release/GhostMidiTests.exe
 
 # Re-measure the 16-bit quantisation delta against the 1.0.8 render
 build/GhostTests_artefacts/Release/GhostTests.exe x --check-dsp-reference Tests/dsp_reference_1.0.8_float.bin
 ```
+
+---
+
+## 10. MIDI / CV integration additions
+
+The suite now also covers the MIDI IN / OUT / THRU and CV work:
+
+| Area | Covered by |
+|---|---|
+| Router channel/range filtering, transpose, channel remap, THRU de-duplication, stuck-note release | `testMidiRouter` in `GhostTests` |
+| 1 V/oct CV output and CV-to-MIDI round trip | `testCvConversion` in `GhostTests` |
+| Drum processor input channel filter, per-pad note map, velocity curve, the three THRU modes, THRU release on stop, output channel/note map, CV output | `testMidiIntegration` in `GhostTests` |
+| GHOST HEALER DRUMS MIDI defaults, filters, CV in/out, state restore and editor attachments | `GhostMidiTests` |
+
+Backwards compatibility: every new parameter defaults to the 1.0.8 behaviour
+(MIDI input on all channels, output channel 10, notes 36–83, linear velocity,
+no THRU echo, pad hits not emitted, MIDI signal mode), and the DSP reference
+render is unchanged, so existing projects and presets load with identical
+audio and MIDI routing. The new `cvGate` and CV settings are inert until CV
+mode is selected.
+
+`midi-plugin-preview.png` is written next to the test executable when
+`GhostMidiTests` runs, so the routing-hub panel can be inspected without iPad
+hardware.

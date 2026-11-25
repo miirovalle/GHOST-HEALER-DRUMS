@@ -772,6 +772,238 @@ juce::MemoryBlock batteryFixture(const juce::String& name, bool escape = false, 
     compressed.write(packed.getData(), packed.getDataSize()); compressed.writeRepeatedByte(0, 8);
     return batteryContainer(118, {}, batteryContainer(115, compressed.getMemoryBlock()));
 }
+void testMidiRouter()
+{
+    using namespace gh::midi;
+    Router router;
+    Router::Settings settings;
+    settings.output = true;
+    settings.thru = false;
+    router.setSettings(settings);
+
+    juce::MidiBuffer out;
+    router.route(juce::MidiMessage::noteOn(10, 36, 0.8f), 5, out);
+    require(out.getNumEvents() == 1, "Router emits one note");
+    require((*out.cbegin()).samplePosition == 5, "Router keeps the exact sample position");
+    const auto routed = (*out.cbegin()).getMessage();
+    require(routed.getChannel() == 10 && routed.getNoteNumber() == 36 && routed.getVelocity() == 102,
+        "Router keeps channel, note and velocity");
+    require(router.hasHeldNotes(), "Router tracks the sounding note");
+    out.clear();
+    router.route(juce::MidiMessage::noteOff(10, 36), 0, out);
+    require(! router.hasHeldNotes(), "Note-off clears the tracked note");
+
+    out.clear();
+    settings.inputChannel = 1;
+    router.setSettings(settings);
+    router.route(juce::MidiMessage::noteOn(2, 36, 1.0f), 0, out);
+    require(out.isEmpty(), "Channel filter drops other channels");
+    router.route(juce::MidiMessage::noteOn(1, 120, 1.0f), 0, out);
+    settings.highNote = 100;
+    router.setSettings(settings);
+    out.clear();
+    router.route(juce::MidiMessage::noteOn(1, 120, 1.0f), 0, out);
+    require(out.isEmpty(), "Note range filter drops notes outside the range");
+
+    settings.highNote = 127;
+    settings.inputChannel = 0;
+    settings.outputChannel = 2;
+    settings.transpose = 12;
+    router.setSettings(settings);
+    out.clear();
+    router.route(juce::MidiMessage::noteOn(1, 36, 1.0f), 7, out);
+    const auto moved = (*out.cbegin()).getMessage();
+    require(moved.getChannel() == 2 && moved.getNoteNumber() == 48, "Router remaps the channel and transposes");
+    router.reset();
+
+    out.clear();
+    settings.transpose = 0;
+    settings.outputChannel = 10;
+    settings.thru = true;
+    router.setSettings(settings);
+    router.route(juce::MidiMessage::noteOn(10, 40, 1.0f), 0, out);
+    require(out.getNumEvents() == 1, "Identical thru and output notes are not duplicated");
+    router.reset();
+    out.clear();
+    settings.outputChannel = 11;
+    router.setSettings(settings);
+    router.route(juce::MidiMessage::noteOn(10, 40, 1.0f), 0, out);
+    require(out.getNumEvents() == 2, "Thru plus a different output channel emits both routes");
+
+    out.clear();
+    router.releaseAll(12, out);
+    require(out.getNumEvents() == 2 && (*out.cbegin()).samplePosition == 12, "releaseAll releases every routed copy");
+    require(! router.hasHeldNotes(), "releaseAll clears the tracked notes");
+
+    require(std::abs(applyVelocityCurve(0.25f, soft) - 0.5f) < 1.0e-6f, "Soft curve lifts low velocities");
+    require(std::abs(applyVelocityCurve(0.5f, hard) - 0.25f) < 1.0e-6f, "Hard curve lowers velocity");
+
+    NoteMap map;
+    require(map.noteForSlot(0) == 36 && map.slotForNote(40) == 4, "Default note map matches the 1.0.8 layout");
+    map.setNote(4, 100);
+    require(map.slotForNote(100) == 4 && map.slotForNote(40) == -1, "Custom note map replaces the default mapping");
+}
+
+void testCvConversion()
+{
+    using namespace gh::midi;
+    CvOutput cv;
+    cv.setSampleRate(48000);
+    cv.noteOn(72, 0.8f, 0.05);
+    float pitch = 0, gate = 0;
+    for (int i = 0; i < 100; ++i) cv.render(pitch, gate);
+    require(std::abs(pitch - 1.0f) < 1.0e-6f, "MIDI note 72 is 1 V");
+    require(gate > 0.1f, "Gate CV follows the note");
+    for (int i = 0; i < 8000; ++i) cv.render(pitch, gate);
+    require(gate < 0.001f, "Gate CV closes after its duration");
+
+    CvOutput source;
+    source.setSampleRate(48000);
+    source.noteOn(48, 1.0f, 0.2);
+    CvInput sink;
+    int opened = 0, closed = 0, detected = -1;
+    for (int i = 0; i < 40000; ++i)
+    {
+        float p = 0, g = 0;
+        source.render(p, g);
+        const auto edge = sink.process(p, g);
+        if (edge > 0) { ++opened; detected = sink.currentNote(); }
+        if (edge < 0) ++closed;
+    }
+    require(opened == 1 && closed == 1 && detected == 48, "CV round-trip recovers the note and a single gate");
+}
+
+void testMidiIntegration(const juce::File& library)
+{
+    DrumProcessor p(library);
+    p.setRateAndBufferSizeDetails(48000, 256);
+    p.prepareToPlay(48000, 256);
+    for (int i = 0; i < 1000 && (p.getView().memory == 0 || p.getView().patternLoading); ++i) pump();
+    require(p.getView().memory > 0, "MIDI integration kit ready");
+    p.stopSequence();
+    juce::AudioBuffer<float> audio(2, 256);
+    juce::MidiBuffer midi;
+    p.processBlock(audio, midi);
+
+    set(p, "midiInChannel", 1);
+    const auto filteredStart = p.getMidiMonitor().inCount;
+    midi.addEvent(juce::MidiMessage::noteOn(2, 36, 1.0f), 0);
+    p.processBlock(audio, midi);
+    require(p.getMidiMonitor().inCount == filteredStart, "Input channel filter drops other channels");
+    midi.addEvent(juce::MidiMessage::noteOn(1, 36, 1.0f), 0);
+    p.processBlock(audio, midi);
+    require(p.getMidiMonitor().triggerCount == filteredStart + 1, "Matching input channel triggers the pad");
+    set(p, "midiInChannel", 0);
+
+    const auto beforeMap = p.getMidiMonitor().triggerCount;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 100, 1.0f), 0);
+    p.processBlock(audio, midi);
+    require(p.getMidiMonitor().triggerCount == beforeMap, "Unmapped notes do not trigger a pad");
+    set(p, "midiNote05", 100);
+    midi.addEvent(juce::MidiMessage::noteOn(1, 100, 1.0f), 0);
+    p.processBlock(audio, midi);
+    require(p.getMidiMonitor().triggerCount == beforeMap + 1, "Custom note map routes a new note to its pad");
+    set(p, "midiNote05", 40);
+
+    set(p, "midiIn", 0);
+    const auto beforeDisabled = p.getMidiMonitor().inCount;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 36, 1.0f), 0);
+    p.processBlock(audio, midi);
+    require(p.getMidiMonitor().inCount == beforeDisabled, "MIDI input switch disables external triggering");
+    set(p, "midiIn", 1);
+
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(3, 55, 0.9f), 10);
+    p.processBlock(audio, midi);
+    require(midi.isEmpty(), "Trigger-only mode does not echo input MIDI");
+
+    set(p, "midiThru", 1);
+    const auto beforeThru = p.getMidiMonitor().triggerCount;
+    midi.addEvent(juce::MidiMessage::noteOn(3, 55, 0.9f), 10);
+    p.processBlock(audio, midi);
+    require(midi.getNumEvents() == 1 && (*midi.cbegin()).getMessage().getNoteNumber() == 55
+        && (*midi.cbegin()).samplePosition == 10, "Thru-only mode echoes the input at its exact offset");
+    require(p.getMidiMonitor().triggerCount == beforeThru, "Thru-only mode does not trigger the pads");
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOff(3, 55), 3);
+    p.processBlock(audio, midi);
+    require(midi.getNumEvents() == 1 && (*midi.cbegin()).getMessage().isNoteOff(), "Thru forwards note-off");
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(3, 55, 0.9f), 0);
+    p.processBlock(audio, midi);
+    require(midi.getNumEvents() == 1, "Thru forwards a held note");
+    p.stopSequence();
+    midi.clear();
+    p.processBlock(audio, midi);
+    require(midi.getNumEvents() == 1 && (*midi.cbegin()).getMessage().isNoteOff(),
+        "Stop releases passed-through notes to prevent stuck notes");
+
+    set(p, "midiThru", 2);
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(3, 55, 0.9f), 5);
+    p.processBlock(audio, midi);
+    require(midi.getNumEvents() == 1 && p.getMidiMonitor().triggerCount == beforeThru + 1,
+        "Trigger + thru echoes and triggers simultaneously");
+
+    set(p, "midiThru", 0);
+    set(p, "midiOut", 1);
+    set(p, "midiOutChannel", 2);
+    set(p, "midiNote01", 60);
+    gh::Grid g;
+    g.scenes[0].velocity[0][0] = 100;
+    p.setGrid(g);
+    for (int i = 0; i < 500 && p.getView().patternLoading; ++i) pump();
+    p.stopSequence();
+    midi.clear();
+    p.processBlock(audio, midi);
+    midi.addEvent(juce::MidiMessage::noteOn(1, gh::gateNote, 1.0f), 0);
+    p.processBlock(audio, midi);
+    bool foundMapped = false;
+    for (const auto e : midi)
+        if (e.getMessage().isNoteOn())
+            foundMapped = e.getMessage().getChannel() == 2 && e.getMessage().getNoteNumber() == 60;
+    require(foundMapped, "Loop notes use the selected output channel and note map");
+
+    p.stopSequence();
+    midi.clear();
+    p.processBlock(audio, midi);
+    set(p, "midiOut", 0);
+    set(p, "midiCvMode", 1);
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(1, 72, 1.0f), 0);
+    p.processBlock(audio, midi);
+    require(std::abs(audio.getSample(0, 128) - 1.0f) < 1.0e-4f, "CV mode emits 1 V/oct pitch CV on the left channel");
+    require(audio.getSample(1, 128) > 0.5f, "CV mode emits a gate on the right channel");
+    set(p, "midiCvMode", 0);
+}
+
+void testAuv3Popups(const juce::File& library)
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_AudioUnitv3);
+    DrumProcessor p(library);
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+    std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
+    // AUv3 hosts always give the editor a real peer; mirror that here so the
+    // popup-parent code path is the one under test.
+    editor->addToDesktop(juce::ComponentPeer::windowHasTitleBar);
+    editor->setVisible(true);
+    editor->setSize(900, 800);
+    pump(20);
+    auto* kits = findControl<juce::ComboBox>(*editor, "Drum kit");
+    require(kits != nullptr, "AUv3 editor exposes the kit selector");
+    require(juce::Component::getCurrentlyModalComponent() == nullptr, "AUv3 editor starts unblocked");
+    kits->showPopup();
+    pump(40);
+    auto* modal = juce::Component::getCurrentlyModalComponent();
+    require(modal != nullptr, "AUv3 kit menu opens");
+    require(editor->isParentOf(modal) || modal->getTopLevelComponent() == editor.get(),
+        "AUv3 menu is hosted inside the plugin view instead of a separate window");
+    juce::PopupMenu::dismissAllActiveMenus();
+    pump(40);
+    require(juce::Component::getCurrentlyModalComponent() == nullptr,
+        "Dismissing the menu unblocks every control again");
+}
+
 void testBatteryImport(const juce::File& library)
 {
     const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory)
@@ -1038,6 +1270,10 @@ int main(int argc, char** argv)
     testMidiOutput(catalogue.root);
     testMidiClipboard(catalogue);
     testHostedTempo(catalogue.root);
+    testAuv3Popups(catalogue.root);
+    testMidiRouter();
+    testCvConversion();
+    testMidiIntegration(catalogue.root);
     DrumProcessor processor(catalogue.root);
     processor.setRateAndBufferSizeDetails(48000, 256);
     processor.prepareToPlay(48000, 256);

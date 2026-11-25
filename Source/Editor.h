@@ -116,6 +116,7 @@ private:
     void refresh();
     void selectPad(int);
     void updateInspector();
+    void bindPadNote(int);
     void refreshGrid();
     void browse(int mode);
     void nameKit();
@@ -140,6 +141,15 @@ private:
     juce::TextButton saveMidi {"Save MIDI file"};
     juce::ToggleButton midiOut {"Live MIDI out"}, koalaRecord {"Record to Koala"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> midiOutAttachment, koalaRecordAttachment;
+    juce::Label midiTitle, midiMonitor;
+    juce::Label inChannelLabel, outChannelLabel, thruLabel, velocityLabel, modeLabel, padNoteLabel, cvGateLabel;
+    juce::ToggleButton midiIn {"MIDI in"}, midiOutPads {"Pads > MIDI"};
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> midiInAttachment, midiOutPadsAttachment;
+    juce::ComboBox inChannel, outChannel, thruMode, velocityCurve, cvMode, padNote;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> inChannelAttachment, outChannelAttachment,
+        thruModeAttachment, velocityCurveAttachment, cvModeAttachment;
+    juce::Slider cvGate;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cvGateAttachment;
     std::unique_ptr<juce::Component> nativeExport;
 #if JUCE_IOS
     std::unique_ptr<juce::UIViewComponent> nativeLoopName;
@@ -170,6 +180,7 @@ private:
     std::array<juce::String, gh::pads> padNames;
     size_t kitCount = 0, loopCount = 0;
     bool refreshing = false;
+    bool bindingPadNote = false;
     std::unique_ptr<SequencerWindow> sequenceWindow;
     VelocitySlider* selectedStep = nullptr;
     int displayedScene = -1;

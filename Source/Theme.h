@@ -58,7 +58,17 @@ public:
             return juce::LookAndFeel_V4::getParentComponentForMenuOptions (options);
 
         if (auto* target = options.getTargetComponent())
-            return target->getTopLevelComponent();
+        {
+            if (auto* top = target->getTopLevelComponent())
+            {
+                // A hidden or tiny top-level component cannot host a usable popup:
+                // that would leave an invisible modal menu blocking every control.
+                const auto bounds = top->getLocalBounds();
+                if (top->isShowing() && top->getPeer() != nullptr
+                    && bounds.getWidth() >= 200 && bounds.getHeight() >= 200)
+                    return top;
+            }
+        }
 
         return nullptr;
     }

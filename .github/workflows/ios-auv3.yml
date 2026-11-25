@@ -113,11 +113,15 @@ jobs:
         if: steps.signing.outputs.enabled != 'true'
         run: |
           set -euo pipefail
-          xcodebuild -project "$BUILD_DIR/GhostDrums.xcodeproj" \
-            -target GhostDrums_Standalone -configuration Release -sdk iphoneos \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            -quiet build
+          for TARGET in GhostDrums_Standalone GhostDrumsMidi_Standalone; do
+            echo "::group::Building $TARGET"
+            xcodebuild -project "$BUILD_DIR/GhostDrums.xcodeproj" \
+              -target "$TARGET" -configuration Release -sdk iphoneos \
+              ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+              -quiet build
+            echo "::endgroup::"
+          done
 
       - name: Build AUv3 + Standalone (signed)
         if: steps.signing.outputs.enabled == 'true'
@@ -127,17 +131,21 @@ jobs:
           ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |
           set -euo pipefail
-          xcodebuild -project "$BUILD_DIR/GhostDrums.xcodeproj" \
-            -target GhostDrums_Standalone -configuration Release -sdk iphoneos \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "${RUNNER_TEMP}/AuthKey.p8" \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER" \
-            -quiet build
+          for TARGET in GhostDrums_Standalone GhostDrumsMidi_Standalone; do
+            echo "::group::Building $TARGET"
+            xcodebuild -project "$BUILD_DIR/GhostDrums.xcodeproj" \
+              -target "$TARGET" -configuration Release -sdk iphoneos \
+              ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+              DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "${RUNNER_TEMP}/AuthKey.p8" \
+              -authenticationKeyID "$KEY_ID" \
+              -authenticationKeyIssuerID "$ISSUER" \
+              -quiet build
+            echo "::endgroup::"
+          done
 
-      - name: Package IPA
+      - name: Package IPAs
         id: package
         run: |
           set -euo pipefail
@@ -146,32 +154,45 @@ jobs:
           if [ "${{ steps.signing.outputs.enabled }}" = "true" ]; then SUFFIX=""; else SUFFIX="-unsigned"; fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          APP="$(find "$BUILD_DIR" -type d -name 'GHOST HEALER DRUMS.app' | head -n1)"
-          if [ -z "$APP" ]; then
-            echo "::error::Build produced no GHOST HEALER DRUMS.app."
-            find "$BUILD_DIR" -maxdepth 3 -type d -name '*.app' -o -maxdepth 3 -type d -name '*.appex'
-            exit 1
-          fi
+          mkdir -p out
 
-          APPEX="$(find "$APP" -type d -name '*.appex' | head -n1)"
-          if [ -z "$APPEX" ]; then
-            echo "::error::The AUv3 extension is not embedded in the container app."
-            exit 1
-          fi
-          if [ -z "$(find "$APPEX" -type f -path '*GHLibrary/*' -name 'catalog.json' | head -n1)" ]; then
-            echo "::error::The sample library is missing from the AUv3 bundle (Resources/GHLibrary/catalog.json)."
-            exit 1
-          fi
+          package_app() {
+            local app="$1"
+            local stem="$2"
+            local needs_samples="$3"
+            if [ -z "$app" ]; then
+              echo "::error::Build produced no ${stem}.app."
+              find "$BUILD_DIR" -maxdepth 4 -type d \( -name '*.app' -o -name '*.appex' \) || true
+              exit 1
+            fi
+            local appex
+            appex="$(find "$app" -type d -name '*.appex' | head -n1)"
+            if [ -z "$appex" ]; then
+              echo "::error::The AUv3 extension is not embedded in ${stem}.app."
+              exit 1
+            fi
+            if [ "$needs_samples" = "true" ] \
+               && [ -z "$(find "$appex" -type f -path '*GHLibrary/*' -name 'catalog.json' | head -n1)" ]; then
+              echo "::error::The sample library is missing from the AUv3 bundle (Resources/GHLibrary/catalog.json)."
+              exit 1
+            fi
+            local exe
+            exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+            lipo -info "$app/$exe"
 
-          EXE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
-          lipo -info "$APP/$EXE"
+            rm -rf Payload
+            mkdir -p Payload
+            cp -R "$app" Payload/
+            xattr -cr Payload || true
+            zip -qry -X "out/${stem}-${VERSION}-ios${SUFFIX}.ipa" Payload
+            ditto -c -k --keepParent "$appex" "out/${stem}-${VERSION}-AUv3${SUFFIX}.appex.zip"
+            rm -rf Payload
+          }
 
-          mkdir -p out Payload
-          cp -R "$APP" Payload/
-          xattr -cr Payload || true
-          zip -qry -X "out/GHOST-HEALER-DRUMS-${VERSION}-ios${SUFFIX}.ipa" Payload
-          ditto -c -k --keepParent "$APPEX" "out/GHOST-HEALER-DRUMS-${VERSION}-AUv3${SUFFIX}.appex.zip"
-          rm -rf Payload
+          package_app "$(find "$BUILD_DIR" -type d -name 'GHOST HEALER DRUMS.app' | head -n1)" \
+            "GHOST-HEALER-DRUMS" "true"
+          package_app "$(find "$BUILD_DIR" -type d -name 'GHOST HEALER DRUMS MIDI.app' | head -n1)" \
+            "GHOST-HEALER-DRUMS-MIDI" "false"
           ls -lh out
 
       - name: Upload artifacts

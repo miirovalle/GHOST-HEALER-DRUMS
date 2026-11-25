@@ -2,6 +2,7 @@
 #include "Engine.h"
 #include "MidiOutput.h"
 #include "MidiClipboard.h"
+#include "MidiRouting.h"
 #include <mutex>
 
 class DrumProcessor final : public juce::AudioProcessor,
@@ -12,6 +13,7 @@ public:
     explicit DrumProcessor(juce::File library = {}, std::unique_ptr<gh::MidiOutput> recordOutput = {},
                            gh::MidiClipboardWriter clipboardWriter = gh::copyMidiToClipboard);
     ~DrumProcessor() override;
+    static juce::String midiNoteId(int slot);
     void prepareToPlay(double, int) override;
     void releaseResources() override;
     bool isBusesLayoutSupported(const BusesLayout&) const override;
@@ -41,7 +43,17 @@ public:
         size_t memory = 0;
         bool error = false, humanized = false, gridSource = true, loopGm = false, patternLoading = true, patternReady = false;
     };
+    /** Last MIDI seen by the audio thread, for the MIDI activity display. */
+    struct Monitor
+    {
+        int inCount = 0, outCount = 0, triggerCount = 0;
+        int lastInNote = -1, lastInChannel = 0, lastInVelocity = 0;
+        int lastOutNote = -1, lastOutChannel = 0;
+    };
+
     View getView() const;
+    Monitor getMidiMonitor() const;
+    bool isCvMode() const { return cvMode.load(std::memory_order_relaxed); }
     gh::Grid getGrid() const;
     void setGrid(const gh::Grid&, bool startPlayback = false);
     void chooseKit(const juce::File&);
@@ -100,9 +112,11 @@ private:
     void retire(gh::Retired*);
     void drainRetired();
     void handleMidi(const uint8_t*, int, int samplePosition);
-    void trigger(int, float, bool loop = false);
+    void readMidiSettings();
+    void trigger(int, float, bool loop = false, double durationSeconds = -1.0);
     bool emitMidi(const juce::MidiMessage&, int samplePosition);
     void stopMidiNotes(int samplePosition);
+    void flushThruNotes(int samplePosition);
     void tickMidiNotes(double beatsPerSample, int samplePosition);
     void triggerMidiNote(int slot, float velocity, double duration, int samplePosition);
     std::array<gh::PadValues, gh::pads> readPads() const;
@@ -112,13 +126,31 @@ private:
     std::atomic<float>* tempoParameter = nullptr;
     std::atomic<float>* midiOutParameter = nullptr;
     std::atomic<float>* koalaRecordParameter = nullptr;
+    std::atomic<float>* midiInParameter = nullptr;
+    std::atomic<float>* midiInChannelParameter = nullptr;
+    std::atomic<float>* midiOutChannelParameter = nullptr;
+    std::atomic<float>* midiThruParameter = nullptr;
+    std::atomic<float>* midiVelocityCurveParameter = nullptr;
+    std::atomic<float>* midiCvModeParameter = nullptr;
+    std::atomic<float>* cvGateParameter = nullptr;
+    std::atomic<float>* midiOutPadsParameter = nullptr;
+    std::array<std::atomic<float>*, gh::pads> midiNoteParameters {};
     std::unique_ptr<gh::MidiOutput> recordMidiOutput;
     static constexpr int maxMidiEvents = 4096;
     std::array<juce::MidiBuffer, 2> midiOutputBuffers;
     juce::MidiBuffer hostMidiFlush;
     juce::MidiBuffer* blockMidiOutput = nullptr;
-    std::array<double, gh::pads> midiNoteBeats {};
+    struct SentNote { int note = -1, channel = 0; double beats = 0; };
+    std::array<SentNote, gh::pads> sentNotes {};
+    gh::midi::NoteMap noteMap;
+    gh::midi::Router thruRouter;
+    gh::midi::CvOutput cv;
     int activeMidiNotes = 0, midiEventCount = 0, midiRoute = 0;
+    int outChannel = gh::midi::defaultChannel, inChannel = 0, thruMode = 0, velocityCurve = 0;
+    bool midiInEnabled = true, triggerFromMidi = true, padsMidiOut = false;
+    std::atomic<bool> cvMode {false};
+    std::atomic<int> midiInCount {0}, midiOutCount {0}, midiTriggerCount {0}, lastInNote {-1}, lastInChannel {0},
+                     lastInVelocity {0}, lastOutNote {-1}, lastOutChannel {0};
     bool primeMidiBuffer = true, midiAborted = false, midiLifecycleStop = false, lastRecordRequested = false;
     std::atomic<int> midiOverruns {0}, recordUnavailable {0};
     mutable std::mutex mutex;
@@ -145,7 +177,7 @@ private:
     std::atomic<bool> listenPreview {false};
     std::atomic<bool> stopRequested {false};
     std::atomic<bool> restoring {false};
-    struct QueuedHit { int slot; float velocity; bool loop; };
+    struct QueuedHit { int slot; float velocity; bool loop; double seconds; };
     std::array<QueuedHit, 128> queuedHits {};
     int queuedHitCount = 0;
     std::atomic<int> droppedHits {0};
